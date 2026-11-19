@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>El Repartidor Exprés</title>
+    <meta
+      name="description"
+      content="Juego arcade 3D de parkour urbano en azoteas. Corre entre carriles, salta abismos y obstáculos, deslízate bajo tuberías y completa entregas contrarreloj."
+    />
+    <meta property="og:title" content="El Repartidor Exprés" />
+    <meta
+      property="og:description"
+      content="Juego arcade 3D de parkour urbano en azoteas. Corre entre carriles, salta abismos y obstáculos, deslízate bajo tuberías y completa entregas contrarreloj."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Metadatos PWA e iOS Safari -->
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Repartidor" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+
+    <link rel="stylesheet" href="./style.css" />
+
+    <!-- Import Map para resolver módulos internos de Three.js desde CDN -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <!-- Lienzo 3D a pantalla completa -->
+    <canvas id="game-canvas" aria-label="Escenario 3D de El Repartidor Exprés"></canvas>
+
+    <!-- Capa HUD minimalista durante la partida -->
+    <header id="hud" class="hud hidden" aria-live="polite">
+      <div class="hud-cluster hud-left">
+        <div class="stat-card stat-timer" id="timer-card">
+          <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+            <circle cx="12" cy="13" r="8" />
+            <path d="M12 9v4l2.5 1.5" stroke-linecap="round" />
+            <path d="M9.5 2h5" stroke-linecap="round" />
+          </svg>
+          <div class="stat-text">
+            <span class="stat-label">TIEMPO</span>
+            <span class="stat-value" id="hud-time">30.0s</span>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <svg class="stat-icon icon-gold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+            <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" stroke-linejoin="round" />
+            <path d="M3.3 7.3L12 12l8.7-4.7M12 22V12" stroke-linejoin="round" />
+          </svg>
+          <div class="stat-text">
+            <span class="stat-label">ENTREGAS</span>
+            <span class="stat-value" id="hud-deliveries">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-cluster hud-right">
+        <div class="stat-card">
+          <div class="stat-text stat-align-right">
+            <span class="stat-label">PUNTOS</span>
+            <span class="stat-value" id="hud-score">0</span>
+          </div>
+        </div>
+
+        <div class="hud-actions">
+          <button
+            id="btn-mute"
+            class="icon-btn"
+            type="button"
+            aria-label="Silenciar o activar audio"
+            title="Audio (M)"
+          >
+            <svg id="icon-sound-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M11 5L6 9H2v6h4l5 4V5z" stroke-linejoin="round" />
+              <path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round" />
+            </svg>
+            <svg id="icon-sound-off" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M11 5L6 9H2v6h4l5 4V5z" stroke-linejoin="round" />
+              <path d="M22 9l-6 6M16 9l6 6" stroke-linecap="round" />
+            </svg>
+          </button>
+
+          <button
+            id="btn-pause"
+            class="icon-btn"
+            type="button"
+            aria-label="Pausar juego"
+            title="Pausa (Esc)"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="5" width="4" height="14" rx="1.2" />
+              <rect x="14" y="5" width="4" height="14" rx="1.2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mensajes flotantes de recompensa (+5s, +1 Entrega) -->
+    <div id="toast-layer" class="toast-layer" aria-hidden="true"></div>
+
+    <!-- Indicador discreto de modo sin conexión -->
+    <div id="offline-banner" class="offline-banner hidden" role="status">
+      Modo sin conexión activo
+    </div>
+
+    <!-- Pantalla de Inicio -->
+    <main id="screen-start" class="overlay-screen">
+      <div class="start-shell">
+        <div class="brand-header">
+          <!-- Logotipo SVG artesanal del juego -->
+          <svg class="title-lockup" viewBox="0 0 380 112" role="img" aria-label="El Repartidor Exprés">
+            <defs>
+              <linearGradient id="badgeGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#facc15" />
+                <stop offset="100%" stop-color="#f97316" />
+              </linearGradient>
+            </defs>
+            <rect x="4" y="14" width="64" height="64" rx="16" fill="url(#badgeGrad)" />
+            <path d="M40 24L22 48h14l-5 20 20-26H37l3-18z" fill="#0f172a" />
+            <text
+              x="84"
+              y="34"
+              fill="#facc15"
+              font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+              font-size="14"
+              font-weight="800"
+              letter-spacing="3"
+            >
+              PARKOUR URBANO 3D
+            </text>
+            <text
+              x="82"
+              y="68"
+              fill="#f8fafc"
+              font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+              font-size="33"
+              font-weight="900"
+              letter-spacing="-0.8"
+            >
+              EL REPARTIDOR
+            </text>
+            <text
+              x="82"
+              y="98"
+              fill="#38bdf8"
+              font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+              font-size="24"
+              font-weight="900"
+              letter-spacing="4"
+            >
+              EXPRÉS
+            </text>
+          </svg>
+        </div>
+
+        <div class="start-panel">
+          <div class="record-row">
+            <span class="record-label">RÉCORD PERSONAL</span>
+            <span class="record-value" id="start-highscore">0 PTS</span>
+          </div>
+
+          <div class="legend-grid">
+            <div class="legend-item">
+              <span class="dot dot-emerald"></span>
+              <span>Relojes: <strong>+5 seg</strong></span>
+            </div>
+            <div class="legend-item">
+              <span class="dot dot-gold"></span>
+              <span>Aros: <strong>+100 pts</strong></span>
+            </div>
+          </div>
+
+          <div class="cta-stack">
+            <button id="btn-start" class="btn-primary" type="button">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.14v14l11-7-11-7z" />
+              </svg>
+              INICIAR REPARTO
+            </button>
+
+            <div class="cta-row">
+              <button id="btn-rules" class="btn-secondary" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.5 9a2.5 2.5 0 015 .6c0 1.6-2.5 2.1-2.5 3.6" stroke-linecap="round" />
+                  <circle cx="12" cy="17.2" r="1" fill="currentColor" stroke="none" />
+                </svg>
+                REGLAS
+              </button>
+
+              <button id="btn-install" class="btn-install hidden" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                  <path d="M4 16v2a3 3 0 003 3h10a3 3 0 003-3v-2M12 4v11m0 0l-4-4m4 4l4-4" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span id="btn-install-label">INSTALAR APP</span>
+              </button>
+            </div>
+          </div>
+
+          <p class="controls-hint">
+            PC: A/D o Flechas · W/Espacio Saltar · S Deslizar &nbsp;|&nbsp; Móvil: Desliza o Toca
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Pantalla de Pausa -->
+    <section id="screen-pause" class="overlay-screen modal-backdrop hidden" aria-modal="true" role="dialog">
+      <div class="modal-card">
+        <p class="modal-eyebrow">TURNO EN PAUSA</p>
+        <h2 class="modal-title">Respirando en la azotea</h2>
+        <div class="cta-stack">
+          <button id="btn-resume" class="btn-primary" type="button">CONTINUAR</button>
+          <button id="btn-rules-pause" class="btn-secondary" type="button">VER REGLAS</button>
+          <button id="btn-restart-pause" class="btn-secondary" type="button">REINICIAR CARRERA</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pantalla de Game Over -->
+    <section id="screen-gameover" class="overlay-screen modal-backdrop hidden" aria-modal="true" role="dialog">
+      <div class="modal-card">
+        <p class="modal-eyebrow" id="gameover-reason">TIEMPO AGOTADO</p>
+        <h2 class="modal-title">FIN DEL REPARTO</h2>
+
+        <div id="new-record-badge" class="new-record hidden">NUEVO RÉCORD</div>
+
+        <div class="summary-grid">
+          <div class="summary-box">
+            <span class="summary-label">PUNTUACIÓN</span>
+            <span class="summary-value" id="over-score">0</span>
+          </div>
+          <div class="summary-box">
+            <span class="summary-label">ENTREGAS</span>
+            <span class="summary-value" id="over-deliveries">0</span>
+          </div>
+          <div class="summary-box">
+            <span class="summary-label">RÉCORD</span>
+            <span class="summary-value accent-gold" id="over-highscore">0</span>
+          </div>
+        </div>
+
+        <div class="cta-stack">
+          <button id="btn-restart" class="btn-primary" type="button">VOLVER A CORRER</button>
+          <button id="btn-menu" class="btn-secondary" type="button">MENÚ PRINCIPAL</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal de Reglas del Juego -->
+    <section id="modal-rules" class="overlay-screen modal-backdrop hidden" aria-modal="true" role="dialog">
+      <div class="modal-card modal-rules-card">
+        <p class="modal-eyebrow">MANUAL DEL REPARTIDOR</p>
+        <h2 class="modal-title">Reglas del juego</h2>
+
+        <div class="rules-list">
+          <div class="rule-item">
+            <span class="rule-badge rule-sky">OBJETIVO</span>
+            <p>Empiezas con <strong>30 segundos</strong>. Corre por las azoteas, completa entregas y consigue la máxima puntuación antes de que el reloj llegue a cero.</p>
+          </div>
+          <div class="rule-item">
+            <span class="rule-badge rule-emerald">RELOJES (+5s)</span>
+            <p>Recoge los <strong>relojes verdes</strong> flotantes para sumar <strong>+5 segundos</strong> al temporizador.</p>
+          </div>
+          <div class="rule-item">
+            <span class="rule-badge rule-gold">ENTREGAS (+100)</span>
+            <p>Cruza los <strong>aros dorados</strong> para sumar <strong>+1 entrega</strong> y <strong>+100 puntos</strong>. Cada entrega aumenta ligeramente la velocidad.</p>
+          </div>
+          <div class="rule-item">
+            <span class="rule-badge rule-orange">OBSTÁCULOS</span>
+            <p><strong>Salta</strong> sobre los aires acondicionados y muros bajos; <strong>deslízate</strong> por debajo de las tuberías aéreas.</p>
+          </div>
+          <div class="rule-item">
+            <span class="rule-badge rule-red">DERROTA</span>
+            <p>La partida termina si <strong>caes al vacío</strong> entre edificios, <strong>chocas</strong> contra un obstáculo o el tiempo llega a <strong>0.0s</strong>.</p>
+          </div>
+          <div class="rule-item">
+            <span class="rule-badge rule-slate">CONTROLES</span>
+            <p><strong>PC:</strong> A/D o Flechas (carriles), W/↑/Espacio (saltar), S/↓ (deslizar), Esc/P (pausa).<br /><strong>Móvil:</strong> Desliza izquierda/derecha, desliza arriba o toca para saltar, desliza abajo para deslizar.</p>
+          </div>
+        </div>
+
+        <button id="btn-close-rules" class="btn-primary" type="button">¡ENTENDIDO, A CORRER!</button>
+      </div>
+    </section>
+
+    <!-- Guía de instalación para iOS Safari -->
+    <section id="modal-ios" class="overlay-screen modal-backdrop hidden" aria-modal="true" role="dialog">
+      <div class="modal-card">
+        <p class="modal-eyebrow">INSTALACIÓN EN IPHONE / IPAD</p>
+        <h2 class="modal-title">Añadir a pantalla de inicio</h2>
+        <ol class="ios-steps">
+          <li>Toca el botón <strong>Compartir</strong> en la barra inferior o superior de Safari.</li>
+          <li>Desliza hacia abajo y selecciona <strong>Añadir a pantalla de inicio</strong>.</li>
+          <li>Pulsa <strong>Añadir</strong> para jugar a pantalla completa y sin conexión.</li>
+        </ol>
+        <button id="btn-close-ios" class="btn-primary" type="button">ENTENDIDO</button>
+      </div>
+    </section>
+
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
