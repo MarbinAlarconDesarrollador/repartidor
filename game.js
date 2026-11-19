@@ -21,6 +21,60 @@ import { RoomEnvironment } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/exam
 
 const STORAGE_HIGHSCORE_KEY = 'repartidor_expres_highscore';
 const STORAGE_MUTE_KEY = 'repartidor_expres_muted';
+const STORAGE_PLAYER_KEY = 'repartidor_expres_player';
+const STORAGE_AVATAR_KEY = 'repartidor_expres_avatar';
+const STORAGE_RANKING_KEY = 'repartidor_expres_ranking';
+
+const AVATARES = {
+  rayo: {
+    id: 'rayo',
+    nombre: 'Rayo',
+    c1: '#0284c7',
+    c2: '#facc15',
+    chaqueta: 0x0284c7,
+    mochila: 0xfacc15,
+    tapa: 0xeab308,
+    gorra: 0xf97316,
+    franja: 0x38bdf8,
+    tenis: 0xf97316,
+  },
+  neon: {
+    id: 'neon',
+    nombre: 'Neón',
+    c1: '#6d28d9',
+    c2: '#22d3ee',
+    chaqueta: 0x6d28d9,
+    mochila: 0x22d3ee,
+    tapa: 0x06b6d4,
+    gorra: 0xe879f9,
+    franja: 0x22d3ee,
+    tenis: 0xe879f9,
+  },
+  eco: {
+    id: 'eco',
+    nombre: 'Eco',
+    c1: '#059669',
+    c2: '#a3e635',
+    chaqueta: 0x059669,
+    mochila: 0xa3e635,
+    tapa: 0x65a30d,
+    gorra: 0xfacc15,
+    franja: 0x6ee7b7,
+    tenis: 0x84cc16,
+  },
+  fuego: {
+    id: 'fuego',
+    nombre: 'Turbo',
+    c1: '#dc2626',
+    c2: '#fbbf24',
+    chaqueta: 0xdc2626,
+    mochila: 0xfbbf24,
+    tapa: 0xd97706,
+    gorra: 0x1e293b,
+    franja: 0xfb923c,
+    tenis: 0xef4444,
+  },
+};
 
 const LANES = [-2.5, 0, 2.5];
 const ROOFTOP_WIDTH = 9.4;
@@ -47,14 +101,19 @@ const dom = {
   timerCard: document.getElementById('timer-card'),
   hudTime: document.getElementById('hud-time'),
   hudDeliveries: document.getElementById('hud-deliveries'),
+  hudAvatarDot: document.getElementById('hud-avatar-dot'),
+  hudPlayerName: document.getElementById('hud-player-name'),
   hudScore: document.getElementById('hud-score'),
   toastLayer: document.getElementById('toast-layer'),
   offlineBanner: document.getElementById('offline-banner'),
 
   screenStart: document.getElementById('screen-start'),
+  inputPlayerName: document.getElementById('input-player-name'),
+  avatarSelector: document.getElementById('avatar-selector'),
   startHighscore: document.getElementById('start-highscore'),
   btnStart: document.getElementById('btn-start'),
   btnRules: document.getElementById('btn-rules'),
+  btnRanking: document.getElementById('btn-ranking'),
   btnInstall: document.getElementById('btn-install'),
   btnInstallLabel: document.getElementById('btn-install-label'),
 
@@ -65,12 +124,19 @@ const dom = {
 
   screenGameOver: document.getElementById('screen-gameover'),
   gameoverReason: document.getElementById('gameover-reason'),
+  overAvatarDot: document.getElementById('over-avatar-dot'),
+  overPlayerName: document.getElementById('over-player-name'),
   newRecordBadge: document.getElementById('new-record-badge'),
   overScore: document.getElementById('over-score'),
   overDeliveries: document.getElementById('over-deliveries'),
   overHighscore: document.getElementById('over-highscore'),
   btnRestart: document.getElementById('btn-restart'),
+  btnRankingOver: document.getElementById('btn-ranking-over'),
   btnMenu: document.getElementById('btn-menu'),
+
+  modalRanking: document.getElementById('modal-ranking'),
+  rankingList: document.getElementById('ranking-list'),
+  btnCloseRanking: document.getElementById('btn-close-ranking'),
 
   modalRules: document.getElementById('modal-rules'),
   btnCloseRules: document.getElementById('btn-close-rules'),
@@ -821,6 +887,14 @@ function crearRepartidor() {
     armR,
     legL,
     legR,
+    mats: {
+      matChaqueta,
+      matFranja,
+      matMochila,
+      matMochilaTapa,
+      matGorra,
+      matTenis,
+    },
   };
 }
 
@@ -969,7 +1043,10 @@ class RepartidorGame {
     this.audio = new AudioFX();
     this.estado = ESTADOS.INICIO;
     this.highScore = Number(leerStorage(STORAGE_HIGHSCORE_KEY, '0')) || 0;
-    this.actualizarHighscoreUI();
+    this.ranking = this.cargarRanking();
+    this.playerName = leerStorage(STORAGE_PLAYER_KEY, '');
+    const savedAvatar = leerStorage(STORAGE_AVATAR_KEY, 'rayo');
+    this.avatarId = AVATARES[savedAvatar] ? savedAvatar : 'rayo';
 
     // Vectores temporales reutilizables (cero GC en el loop)
     this._vecA = new THREE.Vector3();
@@ -981,6 +1058,13 @@ class RepartidorGame {
     this.initPlayer();
     this.initPools();
     this.initInput();
+
+    if (dom.inputPlayerName) {
+      dom.inputPlayerName.value = this.playerName;
+    }
+    this.aplicarAvatar(this.avatarId);
+    this.actualizarHighscoreUI();
+
     this.resetGameState();
     this.onResize();
 
@@ -1181,7 +1265,7 @@ class RepartidorGame {
       const h = 40 + (i % 7) * 8.5;
       const d = 8.5 + (i % 3) * 4.2;
       const z = -Math.floor(i / 2) * 9.5 + 18;
-      this.bgData.push({ x, w, h, d, z });
+      this.bgData.push({ x, w, h, d, z, z0: z });
 
       dummy.position.set(x, h * 0.5 - 38, z);
       dummy.scale.set(w, h, d);
@@ -1231,7 +1315,7 @@ class RepartidorGame {
   initPools() {
     // Pool de edificios/azoteas arquitectónicas reutilizables
     this.buildingPool = [];
-    const poolSize = 9;
+    const poolSize = 12;
     const unitBox = new THREE.BoxGeometry(1, 1, 1);
     const edgeGeo = new THREE.BoxGeometry(ROOFTOP_WIDTH - 0.6, 0.24, 0.36);
 
@@ -1633,6 +1717,15 @@ class RepartidorGame {
     this.keysHeld = new Set();
 
     window.addEventListener('keydown', (e) => {
+      // Permitir escribir libremente en el campo del nombre sin activar atajos del juego
+      if (document.activeElement === dom.inputPlayerName) {
+        if (e.code === 'Enter') {
+          e.preventDefault();
+          dom.inputPlayerName.blur();
+        }
+        return;
+      }
+
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault();
       }
@@ -1646,25 +1739,41 @@ class RepartidorGame {
         return;
       }
 
+      if (e.code === 'Escape') {
+        if (!dom.modalRanking.classList.contains('hidden')) {
+          dom.modalRanking.classList.add('hidden');
+          return;
+        }
+        if (!dom.modalRules.classList.contains('hidden')) {
+          dom.modalRules.classList.add('hidden');
+          return;
+        }
+        if (!dom.modalIos.classList.contains('hidden')) {
+          dom.modalIos.classList.add('hidden');
+          return;
+        }
+      }
+
+      const modalAbierto =
+        !dom.modalRules.classList.contains('hidden') ||
+        !dom.modalRanking.classList.contains('hidden') ||
+        !dom.modalIos.classList.contains('hidden');
+
       if (this.estado === ESTADOS.INICIO) {
-        if (e.code === 'Enter' || e.code === 'Space') {
+        if (!modalAbierto && (e.code === 'Enter' || e.code === 'Space')) {
           this.iniciarPartida();
         }
         return;
       }
 
       if (this.estado === ESTADOS.FIN) {
-        if (e.code === 'Enter' || e.code === 'Space') {
+        if (!modalAbierto && (e.code === 'Enter' || e.code === 'Space')) {
           this.iniciarPartida();
         }
         return;
       }
 
       if (e.code === 'Escape' || e.code === 'KeyP') {
-        if (!dom.modalRules.classList.contains('hidden')) {
-          dom.modalRules.classList.add('hidden');
-          return;
-        }
         this.alternarPausa();
         return;
       }
@@ -1746,7 +1855,25 @@ class RepartidorGame {
       { passive: true }
     );
 
-    // Botones de interfaz y modal de reglas
+    // Personalización de nombre y selección de avatar 3D
+    dom.inputPlayerName.addEventListener('input', () => {
+      this.playerName = dom.inputPlayerName.value.trim();
+      guardarStorage(STORAGE_PLAYER_KEY, this.playerName);
+      this.actualizarHighscoreUI();
+    });
+
+    dom.avatarSelector.addEventListener('click', (e) => {
+      const target = e.target instanceof Element ? e.target.closest('.avatar-option') : null;
+      if (!target) return;
+      const avatarId = target.getAttribute('data-avatar');
+      if (avatarId && AVATARES[avatarId]) {
+        this.audio.desbloquear();
+        this.audio.cambioCarril();
+        this.aplicarAvatar(avatarId);
+      }
+    });
+
+    // Botones de interfaz, reglas y tabla de puntos
     dom.btnStart.addEventListener('click', () => {
       this.audio.desbloquear();
       this.iniciarPartida();
@@ -1759,6 +1886,15 @@ class RepartidorGame {
     });
     dom.btnCloseRules.addEventListener('click', () => {
       dom.modalRules.classList.add('hidden');
+    });
+    dom.btnRanking.addEventListener('click', () => {
+      this.abrirRanking(null);
+    });
+    dom.btnRankingOver.addEventListener('click', () => {
+      this.abrirRanking(this.lastRunTs || null);
+    });
+    dom.btnCloseRanking.addEventListener('click', () => {
+      dom.modalRanking.classList.add('hidden');
     });
     dom.btnRestart.addEventListener('click', () => {
       this.audio.desbloquear();
@@ -1812,15 +1948,149 @@ class RepartidorGame {
   }
 
   // ==========================================================================
-  // 9. CICLO DE ESTADOS DEL JUEGO
+  // 9. PERFIL DEL JUGADOR, AVATARES Y CICLO DE ESTADOS DEL JUEGO
   // ==========================================================================
 
+  obtenerNombreJugador() {
+    const limpio = (this.playerName || '').trim();
+    return limpio || 'Repartidor';
+  }
+
+  cargarRanking() {
+    try {
+      const raw = leerStorage(STORAGE_RANKING_KEY, '[]');
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  guardarRanking() {
+    guardarStorage(STORAGE_RANKING_KEY, JSON.stringify(this.ranking));
+  }
+
+  obtenerRecordJugador(nombre) {
+    const clave = nombre.trim().toLowerCase();
+    let best = 0;
+    for (const r of this.ranking) {
+      if (String(r.name || '').trim().toLowerCase() === clave && r.score > best) {
+        best = r.score;
+      }
+    }
+    if (clave === 'repartidor' && this.ranking.length === 0) {
+      best = Math.max(best, this.highScore);
+    }
+    return best;
+  }
+
+  registrarPuntuacion(nombre, avatarId, score, deliveries) {
+    const ahora = Date.now();
+    this.ranking.push({
+      name: nombre,
+      avatar: AVATARES[avatarId] ? avatarId : 'rayo',
+      score,
+      deliveries,
+      ts: ahora,
+    });
+    this.ranking.sort((a, b) => b.score - a.score || b.deliveries - a.deliveries);
+    if (this.ranking.length > 15) {
+      this.ranking.length = 15;
+    }
+    this.guardarRanking();
+    return ahora;
+  }
+
+  aplicarAvatar(avatarId) {
+    const av = AVATARES[avatarId] || AVATARES.rayo;
+    this.avatarId = av.id;
+    guardarStorage(STORAGE_AVATAR_KEY, av.id);
+
+    // Actualizar colores 3D del personaje en tiempo real
+    const { mats } = this.player;
+    mats.matChaqueta.color.setHex(av.chaqueta);
+    mats.matMochila.color.setHex(av.mochila);
+    mats.matMochilaTapa.color.setHex(av.tapa);
+    mats.matGorra.color.setHex(av.gorra);
+    mats.matFranja.emissive.setHex(av.franja);
+    mats.matTenis.color.setHex(av.tenis);
+
+    // Actualizar selectores UI y mini insignias en HUD / Game Over
+    const buttons = dom.avatarSelector.querySelectorAll('.avatar-option');
+    buttons.forEach((btn) => {
+      const esActivo = btn.getAttribute('data-avatar') === av.id;
+      btn.classList.toggle('active', esActivo);
+      btn.setAttribute('aria-checked', esActivo ? 'true' : 'false');
+    });
+
+    for (const dot of [dom.hudAvatarDot, dom.overAvatarDot]) {
+      if (!dot) continue;
+      dot.style.setProperty('--c1', av.c1);
+      dot.style.setProperty('--c2', av.c2);
+    }
+  }
+
+  abrirRanking(highlightTs = null) {
+    dom.rankingList.innerHTML = '';
+    if (this.ranking.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'ranking-empty';
+      empty.textContent = 'Aún no hay repartos registrados. ¡Sé el primero en correr!';
+      dom.rankingList.appendChild(empty);
+    } else {
+      const top = this.ranking.slice(0, 10);
+      top.forEach((entry, idx) => {
+        const av = AVATARES[entry.avatar] || AVATARES.rayo;
+        const row = document.createElement('div');
+        row.className = 'ranking-row';
+        if (highlightTs && entry.ts === highlightTs) {
+          row.classList.add('is-current');
+        }
+
+        const rank = document.createElement('span');
+        rank.className = 'ranking-rank';
+        rank.textContent = `#${idx + 1}`;
+
+        const dot = document.createElement('span');
+        dot.className = 'avatar-mini';
+        dot.style.setProperty('--c1', av.c1);
+        dot.style.setProperty('--c2', av.c2);
+
+        const info = document.createElement('div');
+        info.className = 'ranking-player';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'ranking-name';
+        nameEl.textContent = entry.name || 'Repartidor';
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'ranking-meta';
+        metaEl.textContent = `${av.nombre} · ${entry.deliveries} ${entry.deliveries === 1 ? 'entrega' : 'entregas'}`;
+
+        info.append(nameEl, metaEl);
+
+        const scoreEl = document.createElement('span');
+        scoreEl.className = 'ranking-score';
+        scoreEl.textContent = `${Number(entry.score || 0).toLocaleString('es-ES')} PTS`;
+
+        row.append(rank, dot, info, scoreEl);
+        dom.rankingList.appendChild(row);
+      });
+    }
+    dom.modalRanking.classList.remove('hidden');
+  }
+
   resetGameState() {
-    // Limpiar edificios e ítems activos
+    // Limpiar edificios e ítems activos por completo antes de reconstruir el recorrido
     for (const b of this.buildingPool) {
       this.liberarItemsDeEdificio(b);
       b.active = false;
       b.group.visible = false;
+    }
+    for (const pool of [this.lowObstaclePool, this.highObstaclePool, this.clockPool, this.deliveryPool]) {
+      for (const item of pool) {
+        item.visible = false;
+      }
     }
     for (const p of this.particles) {
       p.active = false;
@@ -1851,24 +2121,54 @@ class RepartidorGame {
     this.shakeIntensity = 0;
     this.hitstopTimer = 0;
 
+    // Restablecer el horizonte de rascacielos y la avenida profunda a z = 0
+    for (const d of this.bgData) {
+      d.z = d.z0;
+    }
+    this.actualizarHorizonteDecorativo();
+
     // Azotea inicial larga y segura
     const inicial = this.colocarEdificio(10, 44, true);
-    this.furthestZ = inicial.zEnd;
+    this.furthestZ = inicial ? inicial.zEnd : -34;
     this.generarSiguientesEdificios();
 
-    // Posicionar jugador y cámara inicial
+    // Posicionar jugador, luz y cámara sin desfase de fotogramas
     this.player.root.position.set(this.playerX, this.playerY, this.playerZ);
+    this.player.bodyPivot.position.set(0, 0, 0);
     this.player.bodyPivot.scale.set(1, 1, 1);
     this.player.bodyPivot.rotation.set(0, 0, 0);
+    this.animarRepartidor(0);
+
+    this.sunLight.position.set(this.playerX + 14, 24, this.playerZ + 8);
+    this.sunLight.target.position.set(this.playerX, 0, this.playerZ - 12);
+    this.sunLight.target.updateMatrixWorld();
+
+    if (this.estado !== ESTADOS.INICIO) {
+      this.camera.position.set(0, 4.9, 8.6);
+      this.camera.lookAt(0, 1.25, -9.0);
+    }
+
     this.actualizarHUD();
   }
 
   iniciarPartida() {
-    this.resetGameState();
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     this.estado = ESTADOS.JUGANDO;
+    this.resetGameState();
+    this.camera.position.set(0, 4.9, 8.6);
+    this.camera.lookAt(0, 1.25, -9.0);
+    if (this.clock) {
+      this.clock.getDelta();
+    }
+
+    dom.hudPlayerName.textContent = this.obtenerNombreJugador().toUpperCase();
     dom.screenStart.classList.add('hidden');
     dom.screenPause.classList.add('hidden');
     dom.screenGameOver.classList.add('hidden');
+    dom.modalRanking.classList.add('hidden');
+    dom.modalRules.classList.add('hidden');
     dom.hud.classList.remove('hidden');
     dom.toastLayer.innerHTML = '';
   }
@@ -1885,10 +2185,12 @@ class RepartidorGame {
   }
 
   volverAlMenu() {
-    this.resetGameState();
     this.estado = ESTADOS.INICIO;
+    this.resetGameState();
+    this.actualizarHighscoreUI();
     dom.screenGameOver.classList.add('hidden');
     dom.screenPause.classList.add('hidden');
+    dom.modalRanking.classList.add('hidden');
     dom.hud.classList.add('hidden');
     dom.screenStart.classList.remove('hidden');
   }
@@ -1897,18 +2199,25 @@ class RepartidorGame {
     if (this.estado === ESTADOS.FIN) return;
     this.estado = ESTADOS.FIN;
 
+    const nombre = this.obtenerNombreJugador();
     const totalScore = Math.floor(this.distanceScore + this.bonusScore);
-    const esNuevoRecord = totalScore > this.highScore;
-    if (esNuevoRecord) {
+    const prevPersonalBest = this.obtenerRecordJugador(nombre);
+    const esNuevoRecord = totalScore > prevPersonalBest && totalScore > 0;
+    const personalBest = Math.max(prevPersonalBest, totalScore);
+
+    this.lastRunTs = this.registrarPuntuacion(nombre, this.avatarId, totalScore, this.deliveries);
+
+    if (totalScore > this.highScore) {
       this.highScore = totalScore;
       guardarStorage(STORAGE_HIGHSCORE_KEY, this.highScore);
-      this.actualizarHighscoreUI();
     }
+    this.actualizarHighscoreUI();
 
     dom.gameoverReason.textContent = motivo;
+    dom.overPlayerName.textContent = nombre;
     dom.overScore.textContent = totalScore.toLocaleString('es-ES');
     dom.overDeliveries.textContent = String(this.deliveries);
-    dom.overHighscore.textContent = this.highScore.toLocaleString('es-ES');
+    dom.overHighscore.textContent = personalBest.toLocaleString('es-ES');
     dom.newRecordBadge.classList.toggle('hidden', !esNuevoRecord);
 
     dom.hud.classList.add('hidden');
@@ -1916,7 +2225,8 @@ class RepartidorGame {
   }
 
   actualizarHighscoreUI() {
-    dom.startHighscore.textContent = `${this.highScore.toLocaleString('es-ES')} PTS`;
+    const personal = this.obtenerRecordJugador(this.obtenerNombreJugador());
+    dom.startHighscore.textContent = `${personal.toLocaleString('es-ES')} PTS`;
   }
 
   actualizarHUD() {
@@ -2225,8 +2535,11 @@ class RepartidorGame {
     const dummy = new THREE.Object3D();
     for (let i = 0; i < this.bgSkylineCount; i++) {
       const d = this.bgData[i];
-      if (d.z > this.playerZ + 28) {
+      while (d.z > this.playerZ + 28) {
         d.z -= 247;
+      }
+      while (d.z < this.playerZ - 230) {
+        d.z += 247;
       }
       dummy.position.set(d.x, d.h * 0.5 - 38, d.z);
       dummy.scale.set(d.w, d.h, d.d);

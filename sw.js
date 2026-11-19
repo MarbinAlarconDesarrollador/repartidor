@@ -4,7 +4,7 @@
  * para garantizar el funcionamiento 100% sin conexión a internet.
  */
 
-const CACHE_NAME = 'repartidor-expres-v1';
+const CACHE_NAME = 'repartidor-expres-v2';
 
 // Archivos locales de la aplicación
 const LOCAL_ASSETS = [
